@@ -1,14 +1,15 @@
 #include <iostream>
 #include <stdlib.h>
 #include <vector>
-#include <algorithm>	// Vector型のコピーに使う
-#include <time.h>		// 
+#include <algorithm>
+#include <time.h>
+#include <conio.h>
 
 #define FIELD_WIDTH		(10 + 2)	// フィールドの幅
 #define FIELD_HEIGHT	(20 + 1)	// フィールドの高さ
 #define BLOCK_WIDTH_MAX		(4)	// ブロックの最大幅
 #define BLOCK_HEIGHT_MAX	(4)	// ブロックの最大高さ
-#define FPS	(1)	// 1秒あたりの描画頻度
+#define FPS	(2)	// 1秒あたりの描画頻度
 #define INTERVAL	(1000 / FPS)	// 描画間隔（ミリ秒）
 
 // 落下ブロックの種類を宣言
@@ -42,9 +43,7 @@ const std::vector<BLOCKSHAPE> blockShapes
 {
 	// BLOCK_SHAPE_I
 	{
-		// int width, height;	幅と高さ
 		4, 4,
-		// const std::vector<std::vector<int>> pattern{ {BLOCK_HEIGHT_MAX}, {BLOCK_WIDTH_MAX} }; 形状
 		{
 			{ 0, 0, 0, 0},
 			{ 1, 1, 1, 1},
@@ -123,6 +122,7 @@ BLOCK block;
 void DrawField()
 {
 	// フィールドを合成バッファにコピー
+	// combineBuffer = fieldでもいけそう
 	std::copy(field.begin(), field.end(), combineBuffer.begin());
 
 	// 落下ブロックを合成バッファに書き込む
@@ -146,7 +146,7 @@ void DrawField()
 			}
 			else
 			{
-				std::cout << "□";
+				std::cout << "　";
 			}
 		}
 		std::cout << std::endl; // 改行
@@ -164,9 +164,24 @@ void SpawnBlock()
 	block.x = (FIELD_WIDTH - BLOCK_WIDTH_MAX) / 2;
 }
 
+// フィールドにあるブロックを全て削除する
+void ResetBlock()
+{
+	for (int y = 0; y < FIELD_HEIGHT; y++)
+	{
+		for (int x = 0; x < FIELD_WIDTH; x++)
+		{
+			field.at(y).at(x) = 0;
+		}
+	}
+}
+
 // ゲームをリセットする関数
 void Reset()
 {
+	// フィールドをクリア
+	ResetBlock();
+
 	// フィールドの左右に壁を作る
 	for (int y = 0; y < FIELD_HEIGHT; y++)
 	{
@@ -205,6 +220,50 @@ bool BlockIntersectField()
 		}
 	}
 	return false;
+}
+
+// ブロックを削除する関数
+void EraseBlocks()
+{
+	for (int y = 0; y < FIELD_HEIGHT - 1; y++)
+	{
+		bool aligned = true;	// ブロックが横に揃ったかフラグ
+		for (int x = 1; x < FIELD_WIDTH - 1; x++)
+		{
+			// 対象のマスにブロックがあるか判定
+			if (field.at(y).at(x) == 0)
+			{
+				// ブロックがなければ揃ってないので終了
+				aligned = false;
+				break;
+			}
+		}
+		// 揃ったかチェック
+		if (aligned)
+		{
+			for (int x = 1; x < FIELD_WIDTH - 1; x++)
+			{
+				// 揃ってたブロックを削除
+				field.at(y).at(x) = 0;
+			}
+
+			// 消えたところから上をチェック
+			for (int y2 = y; y2 > 0; y2--)
+			{
+				for (int x = 1; x < FIELD_WIDTH - 1; x++)
+				{
+					// 上のマスを下のマスに代入
+					field.at(y2).at(x) = field.at(y2 - 1).at(x);
+				}
+			}
+
+			for (int x = 1; x < FIELD_WIDTH - 1; x++)
+			{
+				// 一番上のブロックを削除
+				field.at(0).at(x) = 0;
+			}
+		}
+	}
 }
 
 // プログラム開始
@@ -246,11 +305,20 @@ int main()
 					{
 						// ブロックをフィールドに書き込む
 						if (block.shape.pattern.at(y).at(x) == 1)
-						field.at(block.y + y).at(block.x + x) |= block.shape.pattern.at(y).at(x);
+						{
+							field.at(block.y + y).at(block.x + x) |= block.shape.pattern.at(y).at(x);
+						}
+						EraseBlocks();
 					}
 				}
 				// ブロックを生成する
 				SpawnBlock();
+
+				// 生成した時点でブロックがあったらゲーム終了
+				if (BlockIntersectField())
+				{
+					Reset();
+				}
 			}
 
 			// コンソール画面をクリアにする
@@ -260,6 +328,64 @@ int main()
 			DrawField();
 
 			lastClock = newClock; // 前回の時間を現在の時間に更新する
+		}
+
+		// キーボード入力があったか判定
+		if (_kbhit())
+		{
+			BLOCK lastBlock = block;
+
+			// 入力されたキーによって分岐
+			switch (_getch())
+			{
+				case 'w':
+					break;
+				// 右移動
+				case 's':
+					block.y++;
+					break;
+				// 左移動
+				case 'a':
+					block.x--;
+					break;
+				// 下移動
+				case 'd':
+					block.x++;
+					break;
+				// w,a,s,d以外のキーは回転（反時計回り）
+				default:
+					{
+						// 回転後のブロックを宣言
+						BLOCK rotatedBlock = block;
+
+						for (int y = 0; y < block.shape.height; y++)
+						{
+							for (int x = 0; x < block.shape.width; x++)
+							{
+								// 回転後のブロック形状を作成
+								rotatedBlock.shape.pattern.at(block.shape.width - 1 - x).at(y) =
+									block.shape.pattern.at(y).at(x);
+							}
+							
+						}
+						// 回転後のブロックを適用
+						block = rotatedBlock;
+					}
+					break;
+			}
+
+			if (BlockIntersectField())
+			{
+				block = lastBlock;
+			}
+			else
+			{
+				// コンソール画面をクリアにする
+				system("cls");
+
+				// フィールドの描画
+				DrawField();
+			}
 		}
 	}
 	return 0;
